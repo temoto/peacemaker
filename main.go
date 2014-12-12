@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"log"
 	"time"
 )
@@ -27,7 +28,12 @@ type ProcessLister interface {
 	List() ([]*Process, error)
 }
 
-var pollInterval = 1666 * time.Millisecond
+var (
+	flagDebug    = flag.Bool("-debug", false, "")
+	pollInterval = flag.Duration("-interval", 1666*time.Millisecond, "")
+	limitMiB     = flag.Float64("-limit-mb", 100, "")
+	limitPercent = flag.Float64("-limit-percent", 5, "")
+)
 
 func chooseVictimByMemory(ps []*Process) *Process {
 	if len(ps) == 0 {
@@ -55,12 +61,20 @@ func step() {
 		log.Fatalln(err)
 	}
 
-	availableRatio := float32(mi["MemAvailable"]) / float32(mi["MemTotal"])
-	log.Printf("Available memory ratio: %.2f\n", availableRatio)
+	availableMiB := float64(mi["MemAvailable"]) / MiB
+	totalMiB := float64(mi["MemTotal"]) / MiB
+	availablePercent := availableMiB / totalMiB * 100
+	if *flagDebug {
+		log.Printf("Available memory: %.1f / %.1f MiB = %.1f%%\n",
+			availableMiB, totalMiB, availablePercent)
+	}
 
-	if mi["MemAvailable"] < (100*MiB) || availableRatio < 0.05 {
+	if availableMiB < *limitMiB || availablePercent < *limitPercent {
 		log.Println("Memory limit")
 		victim := chooseVictimByMemory(ps)
+		if victim == nil {
+			log.Println("  failed to choose victim process to free memory")
+		}
 		log.Printf("  going to kill %s pid=%d memory=%d (%.1f%%)\n",
 			victim.Name, victim.Pid, victim.MemReal/MiB, float32(victim.MemReal)*100.0/float32(mi["MemTotal"]))
 		victim.Terminate()
@@ -68,8 +82,12 @@ func step() {
 }
 
 func main() {
+	flag.Parse()
+	log.Printf("Configuration: pollInterval=%s limitMiB=%.1f limitPercent=%.2f%%\n",
+		*pollInterval, *limitMiB, *limitPercent)
+
 	for {
 		step()
-		time.Sleep(pollInterval)
+		time.Sleep(*pollInterval)
 	}
 }

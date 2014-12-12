@@ -1,0 +1,10 @@
+[Unit]
+Description=Kill processes that abuse system resources.
+
+[Service]
+User=root
+Restart=always
+ExecStart=/usr/bin/peacemaker
+
+[Install]
+WantedBy=multi-user.target
